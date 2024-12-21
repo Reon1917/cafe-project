@@ -1,19 +1,42 @@
+import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { NextResponse } from 'next/server';
-import { MongoClient } from 'mongodb';
-import { Url } from 'next/dist/shared/lib/router/router';
+import dbConnect from '@/lib/db';
+import { User } from '@/data/models';
+
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET is not defined');
+}
 
 export async function POST(req: Request) {
-  const { username, password } = await req.json();
+  try {
+    await dbConnect();
+    const { username, password } = await req.json();
 
-  const admin = await findAdminByUsername(username); // Replace with your DB query
+    const user = await User.findOne({ username });
 
-  if (admin && bcrypt.compareSync(password, admin.password)) {
-    const token = jwt.sign({ username }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    if (!user) {
+      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
+
+    const isValid = await bcrypt.compare(password, user.password);
+
+    if (!isValid) {
+      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
+
+    const token = jwt.sign(
+      { userId: user._id, username: user.username },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
     return NextResponse.json({ token });
-  } else {
-    return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }           
+    );  
   }
 }
 
